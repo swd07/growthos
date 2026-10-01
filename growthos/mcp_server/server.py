@@ -216,6 +216,31 @@ async def social_get_metrics(platform: str, post_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def social_collect_metrics(force: bool = False) -> dict[str, Any]:
+    """Take today's metrics snapshot for every configured platform and published post.
+
+    Appends to the dated series in ~/.growthos/metrics.jsonl; running twice in a day is a no-op
+    unless force=True. Read-only against the networks: nothing is published.
+    """
+    from growthos.metrics.collector import collect
+
+    return await collect(force=force)
+
+
+@mcp.tool()
+def social_metrics_history(kind: str | None = None, platform: str | None = None,
+                           subject: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    """Read collected metric snapshots, newest last. kind is "account" or "post"."""
+    from growthos.metrics.collector import iter_snapshots
+
+    rows = [r for r in iter_snapshots()
+            if (kind is None or r.get("kind") == kind)
+            and (platform is None or r.get("platform") == platform)
+            and (subject is None or r.get("subject") == subject)]
+    return rows[-limit:]
+
+
+@mcp.tool()
 def social_history(limit: int = 20) -> list[dict[str, Any]]:
     """Return the most recent publish log entries."""
     if not LOG.exists():

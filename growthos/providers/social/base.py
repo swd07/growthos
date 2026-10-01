@@ -64,6 +64,7 @@ class Capabilities(BaseModel):
     video: bool = False
     carousel: bool = False
     metrics: bool = False
+    account_metrics: bool = False
     max_text_len: int | None = None
     requires_media: bool = False
     notes: str = ""
@@ -108,6 +109,14 @@ class SocialProvider(ABC):
 
     async def get_metrics(self, post_id: str) -> dict[str, Any]:
         raise ProviderError(f"{self.name}: metrics are not implemented yet")
+
+    async def get_account_metrics(self) -> dict[str, Any]:
+        """Account-level numbers (followers, reach, profile views...), flat name -> value.
+
+        Separate from get_metrics because the two answer different questions: one is "how did
+        this post do", the other "how is the account moving". An adapter may implement either.
+        """
+        raise ProviderError(f"{self.name}: account metrics are not implemented yet")
 
     async def delete(self, post_id: str) -> None:
         raise ProviderError(f"{self.name}: delete is not implemented yet")

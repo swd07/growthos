@@ -251,3 +251,33 @@ def test_telegram_url_only_for_public_channels():
                                              "username": "someone"}}) is None
     # private channel without a username -> no link
     assert p._url({"message_id": 3, "chat": {"id": -1003, "type": "channel"}}) is None
+
+
+def test_instagram_account_metrics_handles_both_insight_shapes(monkeypatch):
+    """Meta serves some account metrics as a `values` series and others only as total_value."""
+    monkeypatch.setenv("INSTAGRAM_USER_ID", "42")
+    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "tok")
+    monkeypatch.setenv("INSTAGRAM_ACCOUNT_METRICS", "reach,profile_views")
+    seen = []
+
+    def handler(req):
+        seen.append(str(req.url))
+        if req.url.path.endswith("/42"):                       # profile fields
+            return httpx.Response(200, json={"id": "42", "followers_count": 664,
+                                             "follows_count": 463, "media_count": 2})
+        metric = req.url.params.get("metric")
+        total = req.url.params.get("metric_type") == "total_value"
+        if metric == "reach":                                   # old shape, no flag needed
+            return httpx.Response(200, json={"data": [{"name": "reach", "values": [
+                {"value": 1, "end_time": "a"}, {"value": 7, "end_time": "b"}]}]})
+        if metric == "profile_views" and not total:             # empty until the flag is passed
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(200, json={"data": [{"name": "profile_views",
+                                                   "total_value": {"value": 49}}]})
+
+    p = InstagramProvider(client=mock_client(handler))
+    out = run(p.get_account_metrics())
+    assert out["followers_count"] == 664 and out["follows_count"] == 463
+    assert out["reach"] == 7                 # latest point of the series, not the first
+    assert out["profile_views"] == 49        # taken from total_value after the retry
+    assert sum("metric_type=total_value" in u for u in seen) == 1

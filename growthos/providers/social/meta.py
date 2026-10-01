@@ -91,6 +91,7 @@ class InstagramProvider(SocialProvider):
 
     def capabilities(self) -> Capabilities:
         return Capabilities(image=True, video=True, carousel=True, metrics=True,
+                            account_metrics=True,
                             max_text_len=2200, requires_media=True,
                             notes="Professional (Business/Creator) account only. Media must be a public URL. "
                                   "Video is published as a Reel. ~100 API posts per 24h.")
@@ -137,6 +138,60 @@ class InstagramProvider(SocialProvider):
         metrics = os.getenv("INSTAGRAM_METRICS", "reach,likes,comments,shares,saved")
         data = await self.graph.request("GET", f"{post_id}/insights", {"metric": metrics})
         return {row["name"]: row["values"][0]["value"] for row in data.get("data", [])}
+
+    async def get_account_metrics(self) -> dict[str, Any]:
+        """Profile counters plus daily account insights.
+
+        The two come from different endpoints: counters are fields on the user node and are
+        absolute, insights are per-period and are requested for `day`. Meta retired
+        `impressions`, so it is not asked for.
+        """
+        out: dict[str, Any] = {}
+        fields = os.getenv("INSTAGRAM_ACCOUNT_FIELDS", "followers_count,follows_count,media_count")
+        profile = await self.graph.request("GET", str(self.user_id), {"fields": fields})
+        out.update({k: v for k, v in profile.items() if k != "id"})
+
+        # One request per metric: asking for several at once makes Meta silently drop the ones
+        # it will not serve together, and a missing number is indistinguishable from a zero.
+        metrics = os.getenv("INSTAGRAM_ACCOUNT_METRICS",
+                            "reach,views,profile_views,accounts_engaged,follower_count").split(",")
+        for metric in [m.strip() for m in metrics if m.strip()]:
+            rows = await self._insight_rows(metric)
+            for row in rows:
+                value = self._insight_value(row)
+                if value is not None:
+                    out[row["name"]] = value
+        return out
+
+    async def _insight_rows(self, metric: str) -> list[dict[str, Any]]:
+        """Ask for one account insight, in whichever form the platform serves it.
+
+        Meta splits account metrics in two: the older ones come back as a `values` series, the
+        newer ones return nothing at all unless `metric_type=total_value` is passed. Which metric
+        belongs to which group changes over time, so instead of hardcoding the split we ask
+        plainly and retry once with the flag when the answer is empty.
+        """
+        for params in ({"metric": metric, "period": "day"},
+                       {"metric": metric, "period": "day", "metric_type": "total_value"}):
+            try:
+                data = await self.graph.request("GET", f"{self.user_id}/insights", params)
+            except ProviderError:
+                return []       # retired, or not served for this account type
+            rows = data.get("data") or []
+            if rows:
+                return rows
+        return []
+
+    @staticmethod
+    def _insight_value(row: dict[str, Any]) -> Any:
+        """Latest number out of either response shape."""
+        values = row.get("values") or []
+        if values:
+            return values[-1].get("value")
+        total = row.get("total_value")
+        if isinstance(total, dict):
+            return total.get("value")
+        return None
 
 
 class FacebookPageProvider(SocialProvider):

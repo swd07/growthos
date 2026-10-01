@@ -33,13 +33,18 @@ by design: it returns a prefilled submit link for a human to post.
 The product idea is `idea → post → publish → measure → learn → next post`. Today only the left
 half exists. Specifically:
 
-- `social_get_metrics` returns a **snapshot** and stores nothing. There is no time series, so
-  "which post worked" cannot be answered at all.
-- Metrics exist only for Instagram (`reach, likes, comments, shares, saved`) and X. Telegram,
+- Post metrics exist only for Instagram (`reach, likes, comments, shares, saved`) and X. Telegram,
   Facebook and Threads expose none through their APIs here.
-- Account-level numbers (profile visits, follower change) are a different endpoint and are not
-  implemented.
 - There is no report, no comparison between posts, no experiment tracking.
+
+Collection itself is built (T1, 2026-10-01). `growthos/metrics/collector.py` appends dated
+snapshots to `~/.growthos/metrics.jsonl`, for the account and for every post in the publish log.
+Account metrics turned out to be available after all, contrary to what this document first said:
+Instagram serves `followers_count`, `follows_count`, `media_count` as profile fields and `reach`,
+`views`, `profile_views`, `accounts_engaged`, `follower_count` as daily insights. Note the shape
+trap — some of those return nothing unless `metric_type=total_value` is passed, and then the number
+sits in `total_value` rather than in a `values` series; the adapter asks plainly and retries once
+with the flag.
 
 Anyone describing this system to a third party should say *publishing with human approval works,
 the analytics loop is not built yet*.
@@ -59,17 +64,20 @@ the analytics loop is not built yet*.
 
 ## 5. Tasks, in the order they should be done
 
-### T1 — Metrics collector *(do first)*
+### T1 — Metrics collector — **done 2026-10-01**
 
-Walk `publish_log.jsonl`, call `get_metrics` for every post that supports it, append a dated
-snapshot to a store next to the drafts. Run it daily.
+`python -m growthos.metrics.collector`, also exposed as the MCP tools `social_collect_metrics` and
+`social_metrics_history`. Appends to `~/.growthos/metrics.jsonl`; a second run on the same day is a
+no-op unless forced, so a cron firing twice does not pollute the series. A platform without account
+metrics is skipped rather than reported as broken, and one failure never costs the others their
+snapshot.
 
-It comes first because it only starts producing data from the day it runs: every day of delay is
-a day missing from any future case study.
+**Baseline, 2026-10-01:** `followers_count 664`, `follows_count 463`, `media_count 2`. The insight
+numbers are *per day*, so they are small by construction and are not comparable to the 30-day totals
+the Instagram app shows.
 
-*Done when:* each published post has a series of dated snapshots; a provider without metrics is
-skipped rather than failing the run; a failed platform does not abort the others; tested against
-mocked responses.
+Still to do here: run it on a schedule. Until that exists the series only grows when someone runs
+the command.
 
 ### T2 — Instagram token refresh
 
@@ -112,6 +120,19 @@ run one real post through each.
 
 `swd07/boomi-ig` already exposes `/reply-comment`, and the Meta app holds
 `instagram_business_manage_comments`. Replies must go through the same approval code as posts.
+
+### T6b — Facebook Login and Business Discovery *(deferred, 2026-10-01)*
+
+Business Discovery — public numbers of someone else's business account by username — does **not**
+work with the current setup, and this was checked against the live API rather than assumed:
+`graph.instagram.com` answers `Tried accessing nonexisting field (business_discovery)`, and
+`graph.facebook.com` will not even parse an Instagram-Login token (`OAuthException 190`). It needs a
+second login path: a Facebook Page, an IG account linked to it, Facebook Login in the app and a
+token with `instagram_basic` and `pages_read_engagement`.
+
+Worth weighing before building: Business Discovery only returns follower and media counts plus
+likes and comments on someone's posts. No reach, no saves, no demographics for accounts that are
+not yours.
 
 ### T7 — Scheduling
 

@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "growthos-social": {
-      "command": "python3",
-      "args": ["-m", "growthos.mcp_server.server"],
+      "command": "C:\\AI\\growthos\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "growthos.mcp_server.server"
+      ],
       "env": {
         "GROWTHOS_ENV_FILE": ".env.social"
       }
