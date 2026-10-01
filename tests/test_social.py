@@ -101,7 +101,7 @@ def test_x_refresh_rotates_token(monkeypatch, tmp_path):
 
     r = run(XProvider(client=mock_client(handler)).publish(PostDraft(text="hi")))
     assert r.url == "https://x.com/i/web/status/123"
-    assert json.loads((tmp_path / "x.json").read_text())["refresh_token"] == "r1"
+    assert json.loads((tmp_path / "x.json").read_text(encoding="utf-8"))["refresh_token"] == "r1"
 
 
 def test_reddit_assisted_link():

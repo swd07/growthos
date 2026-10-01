@@ -47,7 +47,7 @@ class XProvider(SocialProvider):
 
     def _stored(self) -> dict:
         if self.token_file.exists():
-            return json.loads(self.token_file.read_text())
+            return json.loads(self.token_file.read_text(encoding="utf-8"))
         rt = os.getenv("X_REFRESH_TOKEN")
         return {"refresh_token": rt} if rt else {}
 
@@ -79,7 +79,7 @@ class XProvider(SocialProvider):
                "expires_at": time.time() + int(data.get("expires_in", 7200))}
         # X rotates refresh tokens: persist the new one or the next refresh fails.
         self.token_file.parent.mkdir(parents=True, exist_ok=True)
-        self.token_file.write_text(json.dumps(new))
+        self.token_file.write_text(json.dumps(new), encoding="utf-8")
         self.token_file.chmod(0o600)
         return new["access_token"]
 

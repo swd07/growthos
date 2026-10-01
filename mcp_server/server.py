@@ -49,7 +49,7 @@ def _load_env_file() -> None:
     path = Path(os.getenv("GROWTHOS_ENV_FILE", ".env.social")).expanduser()
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -58,12 +58,15 @@ def _load_env_file() -> None:
 
 
 def _drafts() -> dict[str, Any]:
-    return json.loads(DRAFTS.read_text()) if DRAFTS.exists() else {}
+    return json.loads(DRAFTS.read_text(encoding="utf-8")) if DRAFTS.exists() else {}
 
 
 def _save_drafts(d: dict[str, Any]) -> None:
+    """Write the draft store atomically: a failed write must not truncate what is there."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    DRAFTS.write_text(json.dumps(d, ensure_ascii=False, indent=2))
+    tmp = DRAFTS.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, DRAFTS)
 
 
 def _code_hash(code: str) -> str:
@@ -73,7 +76,7 @@ def _code_hash(code: str) -> str:
 
 def _log(entry: dict[str, Any]) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with LOG.open("a") as f:
+    with LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"ts": time.time(), **entry}, ensure_ascii=False) + "\n")
 
 
@@ -212,7 +215,7 @@ def social_history(limit: int = 20) -> list[dict[str, Any]]:
     """Return the most recent publish log entries."""
     if not LOG.exists():
         return []
-    lines = LOG.read_text().splitlines()[-limit:]
+    lines = LOG.read_text(encoding="utf-8").splitlines()[-limit:]
     return [json.loads(x) for x in lines]
 
 
