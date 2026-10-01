@@ -9,6 +9,7 @@ from growthos.providers.social import (
     MediaKind,
     NotConfiguredError,
     PostDraft,
+    ProviderError,
     PublishStatus,
 )
 from growthos.providers.social.meta import InstagramProvider, ThreadsProvider
@@ -157,13 +158,75 @@ def test_mcp_preview_then_dry_run_then_live(monkeypatch, tmp_path):
 
     monkeypatch.setattr(srv, "get_provider", lambda name: TelegramProvider("T", "-1", client=mock_client(handler)))
     prev = srv.social_preview(platforms=["telegram"], text="hello")
+    code = prev["approval_code"]
     assert prev["ready"] == ["telegram"]
-    dry = run(srv.social_publish(prev["draft_id"]))
+    dry = run(srv.social_publish(prev["draft_id"], code))
     assert dry["results"]["telegram"]["status"] == "dry_run" and not sent
 
     monkeypatch.setenv("GROWTHOS_ALLOW_PUBLISH", "1")
-    live = run(srv.social_publish(prev["draft_id"]))
+    # the dry run must not have burned the code
+    live = run(srv.social_publish(prev["draft_id"], code))
     assert live["results"]["telegram"]["status"] == "published" and len(sent) == 1
-    again = run(srv.social_publish(prev["draft_id"]))
-    assert "skipped" in again["results"]["telegram"]["detail"] and len(sent) == 1
     assert len(srv.social_history()) == 1
+
+
+def _reload_server(monkeypatch, tmp_path):
+    monkeypatch.setenv("GROWTHOS_STATE_DIR", str(tmp_path))
+    import importlib
+
+    import growthos.mcp_server.server as srv
+    return importlib.reload(srv)
+
+
+def test_mcp_publish_requires_approval_code(monkeypatch, tmp_path):
+    srv = _reload_server(monkeypatch, tmp_path)
+    sent = []
+
+    def handler(req):
+        sent.append(req)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1, "chat": {"id": -1}}})
+
+    monkeypatch.setattr(srv, "get_provider",
+                        lambda name: TelegramProvider("T", "-1", client=mock_client(handler)))
+    monkeypatch.setenv("GROWTHOS_ALLOW_PUBLISH", "1")
+
+    prev = srv.social_preview(platforms=["telegram"], text="hello")
+    code = prev["approval_code"]
+    assert len(code) == 6 and code != prev["draft_id"]
+
+    with pytest.raises(ProviderError):           # no code at all
+        run(srv.social_publish(prev["draft_id"], ""))
+    with pytest.raises(ProviderError):           # wrong code
+        run(srv.social_publish(prev["draft_id"], "deadbe"))
+    assert not sent                              # nothing left the machine
+
+    live = run(srv.social_publish(prev["draft_id"], code))
+    assert live["results"]["telegram"]["status"] == "published" and len(sent) == 1
+
+    with pytest.raises(ProviderError):           # one-time: the code is burned
+        run(srv.social_publish(prev["draft_id"], code))
+    assert len(sent) == 1
+
+
+def test_mcp_preview_does_not_reset_published_results(monkeypatch, tmp_path):
+    """Re-previewing identical content hits the same draft_id; earlier publishes must survive."""
+    srv = _reload_server(monkeypatch, tmp_path)
+    sent = []
+
+    def handler(req):
+        sent.append(req)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1, "chat": {"id": -1}}})
+
+    monkeypatch.setattr(srv, "get_provider",
+                        lambda name: TelegramProvider("T", "-1", client=mock_client(handler)))
+    monkeypatch.setenv("GROWTHOS_ALLOW_PUBLISH", "1")
+
+    first = srv.social_preview(platforms=["telegram"], text="hello")
+    run(srv.social_publish(first["draft_id"], first["approval_code"]))
+    assert len(sent) == 1
+
+    again = srv.social_preview(platforms=["telegram"], text="hello")
+    assert again["draft_id"] == first["draft_id"]
+    out = run(srv.social_publish(again["draft_id"], again["approval_code"]))
+    assert "skipped" in out["results"]["telegram"]["detail"]
+    assert len(sent) == 1
