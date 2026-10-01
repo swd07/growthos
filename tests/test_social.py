@@ -34,7 +34,7 @@ def test_telegram_text_and_photo():
     def handler(req):
         calls.append((req.url.path, json.loads(req.content)))
         return httpx.Response(200, json={"ok": True, "result": {
-            "message_id": 7, "chat": {"id": -100, "username": "mychan"}}})
+            "message_id": 7, "chat": {"id": -100, "type": "channel", "username": "mychan"}}})
 
     p = TelegramProvider("T", "@mychan", client=mock_client(handler))
     r = run(p.publish(PostDraft(text="hi", link="https://a.b")))
@@ -230,3 +230,24 @@ def test_mcp_preview_does_not_reset_published_results(monkeypatch, tmp_path):
     out = run(srv.social_publish(again["draft_id"], again["approval_code"]))
     assert "skipped" in out["results"]["telegram"]["detail"]
     assert len(sent) == 1
+
+
+def test_httpx_request_logging_is_muted(monkeypatch, tmp_path):
+    """The Telegram token lives in the request URL; httpx must not log it at INFO."""
+    import logging
+
+    srv = _reload_server(monkeypatch, tmp_path)
+    assert srv is not None
+    assert logging.getLogger("httpx").level >= logging.WARNING
+
+
+def test_telegram_url_only_for_public_channels():
+    """A private chat reports the recipient's username; that is not a message link."""
+    p = TelegramProvider("T", "-1")
+    assert p._url({"message_id": 3, "chat": {"id": -1001, "type": "channel", "username": "chan"}})         == "https://t.me/chan/3"
+    assert p._url({"message_id": 3, "chat": {"id": -1002, "type": "supergroup", "username": "grp"}})         == "https://t.me/grp/3"
+    # private chat with a user who happens to have a username -> no link
+    assert p._url({"message_id": 3, "chat": {"id": 833778101, "type": "private",
+                                             "username": "someone"}}) is None
+    # private channel without a username -> no link
+    assert p._url({"message_id": 3, "chat": {"id": -1003, "type": "channel"}}) is None

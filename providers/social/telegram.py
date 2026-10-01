@@ -67,9 +67,17 @@ class TelegramProvider(SocialProvider):
         return data["result"]
 
     def _url(self, message: dict) -> str | None:
+        """Public message link, or None when there is no addressable one.
+
+        Only a channel or supergroup with a username has `t.me/<name>/<message_id>`. A private
+        chat also reports a `username`, but it is the *recipient's* own handle: building a link
+        from it points at their profile, not at the message.
+        """
         chat = message.get("chat", {})
         username = chat.get("username")
-        return f"https://t.me/{username}/{message['message_id']}" if username else None
+        if not username or chat.get("type") not in {"channel", "supergroup"}:
+            return None
+        return f"https://t.me/{username}/{message['message_id']}"
 
     async def publish(self, draft: PostDraft) -> PublishResult:
         chat_id = draft.target or self.channel_id

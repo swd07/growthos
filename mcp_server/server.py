@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -42,6 +43,10 @@ DRAFTS = STATE_DIR / "drafts.json"
 LOG = STATE_DIR / "publish_log.jsonl"
 
 mcp = FastMCP("growthos-social")
+
+# httpx logs every request URL at INFO and the Telegram Bot API carries the bot token in the
+# URL path, so an INFO-level log writes the token into the MCP server log. Keep it at WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _load_env_file() -> None:
