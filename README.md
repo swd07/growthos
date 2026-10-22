@@ -48,6 +48,10 @@ Real separation needs a second device, for example approving on a phone, and tha
 python -m growthos.console          # from the repository root; opens http://127.0.0.1:8765
 ```
 
+![Approval console with a draft approved and its one-time code shown](docs/images/approval-console.png)
+
+*Screenshot with sample data, in dry-run mode.*
+
 One page: drafts waiting for you (text, media, per-platform checks, Approve / Reject), the publish
 log, which platforms are configured and which have gone live, and the collected account metrics.
 It refreshes every few seconds, so a draft Claude prepares appears while you watch. The server
