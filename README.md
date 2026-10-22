@@ -1,13 +1,15 @@
 # GrowthOS
 
-An MCP server that lets Claude Code prepare, review and publish social posts — with two
-independent locks between the model and your audience.
+An MCP server that lets Claude Code prepare, review and publish social posts, plus an approval
+console where a human decides. Two independent locks sit between the model and your audience.
 
 ```text
-you ask for a post
-  → social_preview   validates it per platform, stores an immutable draft,
-                     returns a one-time approval code
-  → you read the draft and send the code back yourself
+you ask Claude Code for a post
+  → social_preview   validates it per platform and stores an immutable draft, pending.
+                     No code is returned: the model never sees one.
+  → the console      you read the draft in the browser and press Approve;
+                     a one-time code appears there, only its hash is stored
+  → you              send that code to Claude in the chat
   → social_publish   publishes exactly that draft, and only with a matching code
 ```
 
@@ -23,13 +25,35 @@ after the user approves". That is a convention, not a mechanism: the model is fr
 approval.
 
 Here the approval is a value the model does not possess until a human hands it over.
-`social_preview` returns a six-character code and stores only its SHA-256 hash with the draft;
-`social_publish` takes the code as a required argument and refuses without a match. The MCP schema
-shows it:
+`social_preview` returns no code at all. The code is generated only when a person presses
+Approve in the console, shown in the browser once, and stored as a SHA-256 hash. `social_publish`
+takes the code as a required argument and refuses without a match. The MCP schema shows it:
 
 ```text
 social_publish   required=['draft_id', 'approval_code']
 ```
+
+Five wrong codes lock the draft, so the six-character code cannot be guessed by retrying. A new
+preview of the same content needs a new decision, and a rejected draft cannot be published.
+
+**The honest limit.** Earlier versions returned the code inside the `social_preview` result, the
+same text the model reads, so the lock relied on the model choosing not to use it. The console
+moves the code out of the model's context. It does not make the machine a security boundary: a
+process with full shell access to your account could still reach the console or your terminal.
+Real separation needs a second device, for example approving on a phone, and that is the next step.
+
+## Approval console
+
+```bash
+python -m growthos.console          # from the repository root; opens http://127.0.0.1:8765
+```
+
+One page: drafts waiting for you (text, media, per-platform checks, Approve / Reject), the publish
+log, which platforms are configured and which have gone live, and the collected account metrics.
+It refreshes every few seconds, so a draft Claude prepares appears while you watch. The server
+binds to 127.0.0.1 only and every API call needs a session key generated at start-up, printed once
+in the terminal and never written to disk. No extra dependencies: Starlette and uvicorn come with
+`mcp`.
 
 ## Platforms
 
@@ -69,7 +93,7 @@ On Windows `python3` in `.mcp.json` is usually the Microsoft Store stub — poin
 [docs/specs/social-provider-interface.md](docs/specs/social-provider-interface.md).
 
 ```bash
-.venv/bin/python -m pytest growthos/tests -q     # 13 tests
+.venv/bin/python -m pytest growthos/tests -q     # 28 tests
 ```
 
 ## State

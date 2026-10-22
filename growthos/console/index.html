@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>GrowthOS Console</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1b1d22; --muted: #6b6f78; --line: #e4e2db;
+  --accent: #3b5bdb; --accent-ink: #ffffff; --accent-soft: #e7ecfd;
+  --ok: #1f8a4c; --ok-soft: #e3f4ea; --warn: #b26a00; --warn-soft: #fbf0dc;
+  --bad: #c0392b; --bad-soft: #fbe6e3; --code-bg: #14161b; --code-ink: #f4f1e8;
+  --shadow: 0 1px 2px rgba(20,22,27,.05), 0 6px 20px rgba(20,22,27,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a20; --ink: #e9e7e1; --muted: #9096a1; --line: #262a32;
+    --accent: #7b93ff; --accent-ink: #0f1115; --accent-soft: #1d2440;
+    --ok: #4cc27f; --ok-soft: #14271c; --warn: #e3a33b; --warn-soft: #2a2112;
+    --bad: #ef6b5d; --bad-soft: #2c1714; --code-bg: #090a0d; --code-ink: #f4f1e8;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-size: 22px; margin: 0; letter-spacing: -.02em; }
+.brand span { color: var(--muted); }
+.pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  font-size: 13px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+.pill.dry { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.pill.live { color: var(--bad); background: var(--bad-soft); border-color: transparent; font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.dot.off { background: var(--bad); }
+
+.flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 18px 0 22px; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  position: relative; }
+.step b { display: block; font-size: 13px; }
+.step small { color: var(--muted); font-size: 12px; }
+.step .n { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.step.you { border-color: var(--accent); background: var(--accent-soft); }
+.step.active { box-shadow: 0 0 0 2px var(--accent); }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+section { margin-bottom: 18px; }
+.grid > * { min-width: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+  margin: 0 0 10px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+h2 .count { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 8px;
+  font-size: 12px; letter-spacing: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.draft { padding: 16px; margin-bottom: 12px; }
+.draft.fresh { animation: glow 2.4s ease-out 1; }
+@keyframes glow { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
+.draft-head { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px;
+  flex-wrap: wrap; }
+.draft-title { font-weight: 600; margin-top: 8px; }
+.draft-text { white-space: pre-wrap; word-wrap: break-word; margin: 8px 0 10px; font-size: 15px;
+  background: var(--bg); border-radius: 10px; padding: 12px; max-height: 260px; overflow: auto; }
+.media { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.media img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.media a { font-size: 12px; color: var(--accent); word-break: break-all; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.chip.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.chip.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+button { font: inherit; border-radius: 10px; padding: 8px 16px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+.codebox { margin-top: 12px; background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 14px 16px; }
+.codebox .code { font-size: 34px; letter-spacing: .18em; font-weight: 700; }
+.codebox p { margin: 6px 0 0; font-size: 13px; opacity: .8; }
+.codebox .say { margin-top: 10px; padding: 8px 10px; background: rgba(255,255,255,.07); border-radius: 8px;
+  font-size: 13px; display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+.codebox button { background: transparent; color: var(--code-ink); border-color: rgba(255,255,255,.25);
+  padding: 4px 10px; font-size: 13px; }
+.empty { padding: 26px 16px; text-align: center; color: var(--muted); }
+.empty b { color: var(--ink); display: block; margin-bottom: 4px; }
+
+.list { padding: 4px 0; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 14px;
+  border-top: 1px solid var(--line); font-size: 14px; }
+.row:first-child { border-top: 0; }
+.row .sub { color: var(--muted); font-size: 12px; }
+.metric-head { padding: 14px 14px 0; }
+.metric-head .big { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+.metric-head .sub { color: var(--muted); font-size: 13px; }
+svg.spark { display: block; width: 100%; height: 70px; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 14px 14px; font-size: 13px; }
+.kv span:nth-child(odd) { color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+td a { color: var(--accent); }
+.tablewrap { overflow-x: auto; }
+.note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.err { background: var(--bad-soft); color: var(--bad); padding: 12px 14px; border-radius: 12px; margin-bottom: 16px; display: none; }
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .flow { grid-template-columns: 1fr; }
+  .codebox .code { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><h1>GrowthOS</h1><span>approval console</span></div>
+    <div class="pills">
+      <span class="pill" id="mode-pill">…</span>
+      <span class="pill"><span class="dot" id="live-dot"></span><span id="sync">connecting</span></span>
+    </div>
+  </header>
+
+  <div class="flow" aria-label="How a post gets published">
+    <div class="step" id="st1"><div class="n">1 · agent</div><b>Claude Code drafts</b><small>social_preview via MCP</small></div>
+    <div class="step you" id="st2"><div class="n">2 · you, here</div><b>Read and approve</b><small>a one-time code appears</small></div>
+    <div class="step you" id="st3"><div class="n">3 · you, in chat</div><b>Send the code to Claude</b><small>the model never sees it otherwise</small></div>
+    <div class="step" id="st4"><div class="n">4 · agent</div><b>social_publish checks it</b><small>5 wrong codes lock the draft</small></div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <div class="grid">
+    <main>
+      <section>
+        <h2>Waiting for you <span class="count" id="pending-count" hidden>0</span></h2>
+        <div id="pending"></div>
+      </section>
+      <section>
+        <h2>Publish log</h2>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>When</th><th>Platform</th><th>Status</th><th>Link</th></tr></thead>
+          <tbody id="log"></tbody>
+        </table></div>
+      </section>
+      <section>
+        <h2>Other drafts</h2>
+        <div class="card list" id="others"></div>
+      </section>
+    </main>
+    <aside>
+      <section>
+        <h2>Platforms</h2>
+        <div class="card list" id="platforms"></div>
+        <div class="note">"Live" means a real post has gone out through this code.</div>
+      </section>
+      <section>
+        <h2>Account metrics</h2>
+        <div class="card" id="metrics"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var key = "";
+  try {
+    var m = location.hash.match(/key=([^&]+)/);
+    if (m) { key = decodeURIComponent(m[1]); sessionStorage.setItem("growthos-key", key); history.replaceState(null, "", location.pathname); }
+    else { key = sessionStorage.getItem("growthos-key") || ""; }
+  } catch (e) { var m2 = location.hash.match(/key=([^&]+)/); if (m2) key = decodeURIComponent(m2[1]); }
+
+  var shownCodes = {};      // draft_id -> code, kept in page memory only
+  var seen = null;          // draft ids we have already rendered as pending
+  var STATUS_LABEL = { published: "published", processing: "processing", private_only: "private only",
+    dry_run: "dry run", failed: "failed", assisted: "assisted" };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function ago(ts) {
+    if (!ts) return "";
+    var s = Math.max(0, Date.now() / 1000 - ts);
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + " min ago";
+    if (s < 86400) return Math.floor(s / 3600) + " h ago";
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+  function safeUrl(u) { return /^https:\/\//i.test(u || "") ? u : ""; }
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ "X-Console-Key": key }, opts.headers || {});
+    return fetch(path, opts).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+    });
+  }
+
+  function chipsFor(d) {
+    return d.platforms.map(function (p) {
+      var c = d.checks[p] || {}; var res = d.results[p];
+      if (res && STATUS_LABEL[res.status] && res.status !== "dry_run")
+        return '<span class="chip ok">' + esc(p) + ' · ' + esc(STATUS_LABEL[res.status]) + '</span>';
+      if (!c.configured) return '<span class="chip bad">' + esc(p) + ' · not configured</span>';
+      if (c.problems && c.problems.length)
+        return '<span class="chip warn" title="' + esc(c.problems.join("; ")) + '">' + esc(p) + ' · ' + c.problems.length + ' issue(s)</span>';
+      return '<span class="chip ok">' + esc(p) + ' · ready</span>';
+    }).join("");
+  }
+
+  function mediaFor(dr) {
+    var items = dr.media || [];
+    if (!items.length) return "";
+    return '<div class="media">' + items.map(function (mi) {
+      var u = safeUrl(mi.url);
+      if (!u) return "";
+      if (mi.kind === "image") return '<img src="' + esc(u) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">';
+      return '<a href="' + esc(u) + '" target="_blank" rel="noreferrer">video: ' + esc(u) + '</a>';
+    }).join("") + '</div>';
+  }
+
+  function codeBox(id) {
+    var code = shownCodes[id];
+    if (!code) return "";
+    var say = "Publish draft " + id + " with code " + code;
+    return '<div class="codebox"><div class="mono code">' + esc(code) + '</div>' +
+      '<p>Send this code to Claude in the chat. It is shown once and is not stored anywhere in plain text.</p>' +
+      '<div class="say"><span class="mono">' + esc(say) + '</span>' +
+      '<button data-copy="' + esc(say) + '">Copy</button></div></div>';
+  }
+
+  function renderPending(drafts) {
+    var list = drafts.filter(function (d) { return d.needs_decision || shownCodes[d.draft_id]; });
+    var firstRun = seen === null; var nextSeen = {};
+    var html = list.map(function (d) {
+      var dr = d.draft || {}; nextSeen[d.draft_id] = true;
+      var fresh = !firstRun && !seen[d.draft_id];
+      var approved = !!shownCodes[d.draft_id];
+      return '<article class="card draft' + (fresh ? " fresh" : "") + '">' +
+        '<div class="draft-head"><span class="mono">draft ' + esc(d.draft_id) + '</span><span>' + esc(ago(d.previewed_at)) + '</span></div>' +
+        (dr.title ? '<div class="draft-title">' + esc(dr.title) + '</div>' : "") +
+        '<div class="draft-text">' + (esc(dr.text) || '<span style="color:var(--muted)">(no text)</span>') + '</div>' +
+        mediaFor(dr) +
+        (safeUrl(dr.link) ? '<div class="note">link: ' + esc(dr.link) + '</div>' : "") +
+        '<div class="chips">' + chipsFor(d) + '</div>' +
+        (approved ? codeBox(d.draft_id) :
+          '<div class="actions"><button class="primary" data-approve="' + esc(d.draft_id) + '">Approve</button>' +
+          '<button data-reject="' + esc(d.draft_id) + '">Reject</button></div>') +
+        '</article>';
+    }).join("");
+    $("pending").innerHTML = html || '<div class="card empty"><b>Nothing to approve</b>Ask Claude Code to prepare a post; it will appear here within a few seconds.</div>';
+    var n = drafts.filter(function (d) { return d.needs_decision; }).length;
+    $("pending-count").hidden = !n; $("pending-count").textContent = n;
+    document.title = (n ? "(" + n + ") " : "") + "GrowthOS Console";
+    $("st2").classList.toggle("active", n > 0);
+    $("st3").classList.toggle("active", Object.keys(shownCodes).length > 0);
+    seen = nextSeen;
+  }
+
+  function renderOthers(drafts) {
+    var list = drafts.filter(function (d) { return !d.needs_decision && !shownCodes[d.draft_id]; }).slice(0, 8);
+    var label = { approved: "approved, waiting for code", used: "published", rejected: "rejected", locked: "locked", pending: "done" };
+    $("others").innerHTML = list.length ? list.map(function (d) {
+      var text = (d.draft && (d.draft.title || d.draft.text) || "").slice(0, 70);
+      var st = d.published_to.length ? "published to " + d.published_to.join(", ") : (label[d.approval_status] || d.approval_status);
+      return '<div class="row"><div><div>' + esc(text || "(no text)") + '</div><div class="sub mono">' + esc(d.draft_id) + ' · ' + esc(ago(d.previewed_at)) + '</div></div>' +
+        '<span class="chip' + (d.published_to.length ? " ok" : d.approval_status === "rejected" || d.approval_status === "locked" ? " bad" : "") + '">' + esc(st) + '</span></div>';
+    }).join("") : '<div class="empty">No other drafts yet.</div>';
+  }
+
+  function renderLog(log) {
+    $("log").innerHTML = log.length ? log.map(function (e) {
+      var u = safeUrl(e.url);
+      var st = e.status; var cls = st === "failed" ? "bad" : (st === "published" ? "ok" : "");
+      return '<tr><td>' + esc(ago(e.ts)) + '</td><td>' + esc(e.platform) + '</td><td><span class="chip ' + cls + '">' + esc(STATUS_LABEL[st] || st) + '</span></td>' +
+        '<td>' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noreferrer">open</a>' : '<span class="sub">' + esc(e.post_id || "") + '</span>') + '</td></tr>';
+    }).join("") : '<tr><td colspan="4" class="sub">Nothing has been published yet.</td></tr>';
+  }
+
+  function renderPlatforms(ps) {
+    $("platforms").innerHTML = ps.map(function (p) {
+      var chip = p.verified_live ? '<span class="chip ok">live</span>' :
+        p.configured ? '<span class="chip">configured</span>' : '<span class="chip">not set up</span>';
+      return '<div class="row"><span>' + esc(p.platform) + '</span>' + chip + '</div>';
+    }).join("");
+  }
+
+  function spark(points) {
+    if (points.length < 2) return "";
+    var w = 300, h = 70, pad = 6;
+    var vals = points.map(function (p) { return p[1]; });
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals); if (hi === lo) { hi += 1; lo -= 1; }
+    var xy = points.map(function (p, i) {
+      var x = pad + i * (w - 2 * pad) / (points.length - 1);
+      var y = h - pad - (p[1] - lo) * (h - 2 * pad) / (hi - lo);
+      return [x.toFixed(1), y.toFixed(1)];
+    });
+    var line = xy.map(function (q) { return q.join(","); }).join(" ");
+    var area = pad + "," + (h - pad) + " " + line + " " + (w - pad) + "," + (h - pad);
+    var last = xy[xy.length - 1];
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="followers over time">' +
+      '<polygon points="' + area + '" fill="var(--accent-soft)"/>' +
+      '<polyline points="' + line + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="3" fill="var(--accent)"/></svg>';
+  }
+
+  function renderMetrics(rows) {
+    if (!rows.length) {
+      $("metrics").innerHTML = '<div class="empty"><b>No snapshots yet</b>Run <span class="mono">python -m growthos.metrics.collector</span> daily.</div>';
+      return;
+    }
+    var byPlat = {};
+    rows.forEach(function (r) { (byPlat[r.platform] = byPlat[r.platform] || []).push(r); });
+    var plat = byPlat.instagram ? "instagram" : Object.keys(byPlat)[0];
+    var series = byPlat[plat];
+    var latest = series[series.length - 1].metrics || {};
+    var fkey = "followers_count" in latest ? "followers_count" : Object.keys(latest)[0];
+    var pts = series.filter(function (r) { return typeof (r.metrics || {})[fkey] === "number"; })
+      .map(function (r) { return [r.date, r.metrics[fkey]]; });
+    var first = pts.length ? pts[0][1] : null, lastv = pts.length ? pts[pts.length - 1][1] : null;
+    var delta = first != null && lastv != null ? lastv - first : 0;
+    var kv = Object.keys(latest).filter(function (k) { return typeof latest[k] === "number"; }).slice(0, 8)
+      .map(function (k) { return '<span>' + esc(k.replace(/_/g, " ")) + '</span><span class="mono">' + esc(latest[k]) + '</span>'; }).join("");
+    $("metrics").innerHTML = '<div class="metric-head"><div class="sub">' + esc(plat) + ' · ' + esc((fkey || "").replace(/_/g, " ")) + '</div>' +
+      '<div class="big">' + esc(lastv != null ? lastv : "–") + '</div>' +
+      '<div class="sub">' + (pts.length > 1 ? (delta >= 0 ? "+" : "") + delta + " since " + esc(pts[0][0]) : esc(pts.length) + " snapshot so far") + '</div></div>' +
+      spark(pts) + '<div class="kv">' + kv + '</div>';
+  }
+
+  function refresh() {
+    if (!key) { showErr("Open the URL printed in the console terminal: it carries the session key."); return; }
+    api("/api/state").then(function (s) {
+      $("err").style.display = "none";
+      $("mode-pill").className = "pill " + (s.publishing_enabled ? "live" : "dry");
+      $("mode-pill").textContent = s.publishing_enabled ? "LIVE publishing" : "Dry run, nothing leaves the machine";
+      $("live-dot").className = "dot"; $("sync").textContent = "synced " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      renderPending(s.drafts); renderOthers(s.drafts); renderLog(s.log); renderPlatforms(s.platforms); renderMetrics(s.account_metrics);
+      $("st1").classList.toggle("active", false);
+    }).catch(function (e) { $("live-dot").className = "dot off"; $("sync").textContent = "offline"; showErr(e.message); });
+  }
+  function showErr(msg) { $("err").textContent = msg; $("err").style.display = "block"; }
+
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t.dataset.approve) {
+      t.disabled = true;
+      api("/api/drafts/" + encodeURIComponent(t.dataset.approve) + "/approve", { method: "POST" })
+        .then(function (r) { shownCodes[r.draft_id] = r.code; refresh(); })
+        .catch(function (e) { showErr(e.message); t.disabled = false; });
+    } else if (t.dataset.reject) {
+      t.disabled = true;
+      api("/api/drafts/" + encodeURIComponent(t.dataset.reject) + "/reject", { method: "POST" })
+        .then(refresh).catch(function (e) { showErr(e.message); t.disabled = false; });
+    } else if (t.dataset.copy) {
+      var text = t.dataset.copy;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+        .then(function () { t.textContent = "Copied"; setTimeout(function () { t.textContent = "Copy"; }, 1500); })
+        .catch(function () { t.textContent = "Select and copy"; });
+    }
+  });
+
+  // once a code has been used (draft published or re-previewed), stop showing it
+  setInterval(function () {
+    api("/api/state").then(function (s) {
+      var changed = false;
+      s.drafts.forEach(function (d) {
+        if (shownCodes[d.draft_id] && d.approval_status !== "approved") { delete shownCodes[d.draft_id]; changed = true; }
+      });
+      if (changed) refresh();
+    }).catch(function () {});
+  }, 5000);
+
+  refresh();
+  setInterval(refresh, 2500);
+})();
+</script>
+</body>
+</html>
