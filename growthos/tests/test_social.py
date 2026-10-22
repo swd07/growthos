@@ -158,8 +158,8 @@ def test_mcp_preview_then_dry_run_then_live(monkeypatch, tmp_path):
 
     monkeypatch.setattr(srv, "get_provider", lambda name: TelegramProvider("T", "-1", client=mock_client(handler)))
     prev = srv.social_preview(platforms=["telegram"], text="hello")
-    code = prev["approval_code"]
-    assert prev["ready"] == ["telegram"]
+    assert "approval_code" not in prev and prev["ready"] == ["telegram"]
+    code = _console_approve(prev["draft_id"])
     dry = run(srv.social_publish(prev["draft_id"], code))
     assert dry["results"]["telegram"]["status"] == "dry_run" and not sent
 
@@ -168,6 +168,16 @@ def test_mcp_preview_then_dry_run_then_live(monkeypatch, tmp_path):
     live = run(srv.social_publish(prev["draft_id"], code))
     assert live["results"]["telegram"]["status"] == "published" and len(sent) == 1
     assert len(srv.social_history()) == 1
+
+
+def _console_approve(draft_id):
+    """What the console does when the human presses Approve."""
+    from growthos import state
+
+    drafts = state.load_drafts()
+    code = state.approve(drafts[draft_id])
+    state.save_drafts(drafts)
+    return code
 
 
 def _reload_server(monkeypatch, tmp_path):
@@ -191,7 +201,9 @@ def test_mcp_publish_requires_approval_code(monkeypatch, tmp_path):
     monkeypatch.setenv("GROWTHOS_ALLOW_PUBLISH", "1")
 
     prev = srv.social_preview(platforms=["telegram"], text="hello")
-    code = prev["approval_code"]
+    with pytest.raises(ProviderError, match="waiting for approval"):   # not approved yet
+        run(srv.social_publish(prev["draft_id"], "abc123"))
+    code = _console_approve(prev["draft_id"])
     assert len(code) == 6 and code != prev["draft_id"]
 
     with pytest.raises(ProviderError):           # no code at all
@@ -222,12 +234,12 @@ def test_mcp_preview_does_not_reset_published_results(monkeypatch, tmp_path):
     monkeypatch.setenv("GROWTHOS_ALLOW_PUBLISH", "1")
 
     first = srv.social_preview(platforms=["telegram"], text="hello")
-    run(srv.social_publish(first["draft_id"], first["approval_code"]))
+    run(srv.social_publish(first["draft_id"], _console_approve(first["draft_id"])))
     assert len(sent) == 1
 
     again = srv.social_preview(platforms=["telegram"], text="hello")
     assert again["draft_id"] == first["draft_id"]
-    out = run(srv.social_publish(again["draft_id"], again["approval_code"]))
+    out = run(srv.social_publish(again["draft_id"], _console_approve(again["draft_id"])))
     assert "skipped" in out["results"]["telegram"]["detail"]
     assert len(sent) == 1
 

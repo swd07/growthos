@@ -1,14 +1,16 @@
 """GrowthOS social MCP server for Claude Code.
 
-Flow (generate != publish):
-  1. social_preview  -> validates the post for each platform, stores an immutable draft
-                        and returns a one-time approval code
-  2. you review the draft and send the code back yourself
-  3. social_publish  -> requires that code and publishes exactly that draft; real
+Flow (generate != approve != publish):
+  1. social_preview  -> validates the post for each platform and stores an immutable draft,
+                        pending approval. No code is returned: the model never sees one.
+  2. the human opens the console (python -m growthos.console), reads the draft and approves
+     it there; the console shows a one-time code in the browser and stores only its hash
+  3. the human sends that code to Claude in the chat
+  4. social_publish  -> requires that code and publishes exactly that draft; real
                         publishing only when GROWTHOS_ALLOW_PUBLISH=1, otherwise a dry run
 
-Two independent locks: the approval code proves a human saw this exact draft, the
-GROWTHOS_ALLOW_PUBLISH switch decides whether anything can leave the machine at all.
+Two independent locks: the approval code proves a human saw this exact draft in the console,
+the GROWTHOS_ALLOW_PUBLISH switch decides whether anything can leave the machine at all.
 
 Run:  python -m growthos.mcp_server.server   (stdio transport)
 """
@@ -16,11 +18,9 @@ Run:  python -m growthos.mcp_server.server   (stdio transport)
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
 import os
-import secrets
 import time
 from pathlib import Path
 from typing import Any
@@ -37,10 +37,7 @@ from growthos.providers.social import (
     PublishStatus,
     get_provider,
 )
-
-STATE_DIR = Path(os.getenv("GROWTHOS_STATE_DIR", "~/.growthos")).expanduser()
-DRAFTS = STATE_DIR / "drafts.json"
-LOG = STATE_DIR / "publish_log.jsonl"
+from growthos import state
 
 mcp = FastMCP("growthos-social")
 
@@ -63,26 +60,15 @@ def _load_env_file() -> None:
 
 
 def _drafts() -> dict[str, Any]:
-    return json.loads(DRAFTS.read_text(encoding="utf-8")) if DRAFTS.exists() else {}
+    return state.load_drafts()
 
 
 def _save_drafts(d: dict[str, Any]) -> None:
-    """Write the draft store atomically: a failed write must not truncate what is there."""
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = DRAFTS.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, DRAFTS)
-
-
-def _code_hash(code: str) -> str:
-    """Hash an approval code; only the hash is ever stored on disk."""
-    return hashlib.sha256(code.strip().encode()).hexdigest()
+    state.save_drafts(d)
 
 
 def _log(entry: dict[str, Any]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": time.time(), **entry}, ensure_ascii=False) + "\n")
+    state.append_log(entry)
 
 
 @mcp.tool()
@@ -104,10 +90,9 @@ def social_preview(platforms: list[str], text: str = "", image_urls: list[str] |
     """Validate a post for the given platforms and save it as a draft awaiting approval.
 
     Media must be public HTTPS URLs. `target` = subreddit for Reddit or a chat id for Telegram.
-    Returns draft_id, per-platform problems and a one-time approval_code. Nothing is published.
-
-    Show the approval code to the user and call social_publish only with the code they
-    send back themselves. Never pass a code the user has not repeated.
+    Returns draft_id and per-platform problems. Nothing is published and no approval code is
+    returned: the user approves the draft in the GrowthOS console, which shows them a one-time
+    code. Ask the user to approve it there and to send you that code.
     """
     media = [MediaItem(kind=MediaKind.IMAGE, url=u) for u in image_urls or []]
     media += [MediaItem(kind=MediaKind.VIDEO, url=u) for u in video_urls or []]
@@ -118,20 +103,23 @@ def social_preview(platforms: list[str], text: str = "", image_urls: list[str] |
         checks[name] = {"configured": p.is_configured(), "problems": p.validate(draft)}
     body = draft.model_dump_json()
     draft_id = hashlib.sha256((body + ",".join(sorted(platforms))).encode()).hexdigest()[:12]
-    approval_code = secrets.token_hex(3)
     drafts = _drafts()
     # draft_id is a hash of the content, so re-previewing the same post lands on the same
     # record: keep what was already published for it, or idempotency would be lost.
     prior = drafts.get(draft_id, {})
-    drafts[draft_id] = {"platforms": platforms, "draft": json.loads(body), "checks": checks,
-                        "created_at": prior.get("created_at", time.time()),
-                        "results": prior.get("results", {}),
-                        "approval_hash": _code_hash(approval_code), "approval_used": False}
+    record = {"platforms": platforms, "draft": json.loads(body), "checks": checks,
+              "created_at": prior.get("created_at", time.time()),
+              "previewed_at": time.time(),
+              "results": prior.get("results", {})}
+    # a fresh preview always needs a fresh human decision, even for identical content
+    state.mark_pending(record)
+    drafts[draft_id] = record
     _save_drafts(drafts)
     ready = [n for n, c in checks.items() if c["configured"] and not c["problems"]]
-    return {"draft_id": draft_id, "approval_code": approval_code,
-            "approval_note": ("Show this code to the user. Call social_publish only with the code "
-                              "they send back themselves."),
+    return {"draft_id": draft_id, "approval_status": state.PENDING,
+            "approval_note": ("Waiting for the user. Ask them to approve this draft in the GrowthOS "
+                              "console (python -m growthos.console) and to send you the code it "
+                              "shows. Do not guess or invent a code."),
             "ready": ready, "checks": checks, "draft": json.loads(body),
             "publishing_enabled": os.getenv("GROWTHOS_ALLOW_PUBLISH") == "1"}
 
@@ -141,9 +129,10 @@ async def social_publish(draft_id: str, approval_code: str,
                          platforms: list[str] | None = None) -> dict[str, Any]:
     """Publish a previously previewed draft, using the approval code the user sent back.
 
-    `approval_code` is the code social_preview returned. Pass only a code the user has
-    repeated to you; without a matching code nothing is published. The code is one-time:
-    a real publish burns it, a dry run does not.
+    `approval_code` is the code the GrowthOS console showed the user when they approved the
+    draft. Pass only a code the user typed to you; without a matching code nothing is published.
+    Five wrong codes lock the draft. The code is one-time: a real publish burns it, a dry run
+    does not.
 
     Publishes for real only when GROWTHOS_ALLOW_PUBLISH=1; otherwise returns a dry run.
     Platforms already published for this draft are skipped (idempotent).
@@ -152,14 +141,10 @@ async def social_publish(draft_id: str, approval_code: str,
     if draft_id not in drafts:
         raise ProviderError(f"unknown draft_id {draft_id}; call social_preview first")
     record = drafts[draft_id]
-    if record.get("approval_used"):
-        raise ProviderError("approval code already used for this draft; run social_preview "
-                            "again and ask the user for the new code")
-    expected = record.get("approval_hash")
-    if not expected:
-        raise ProviderError("draft has no approval code; run social_preview again")
-    if not approval_code or not hmac.compare_digest(_code_hash(approval_code), expected):
-        raise ProviderError("approval_code missing or wrong; nothing was published")
+    refusal = state.check_code(record, approval_code)
+    if refusal:
+        _save_drafts(drafts)          # keep the failed-attempt count
+        raise ProviderError(refusal)
     draft = PostDraft.model_validate(record["draft"])
     live = os.getenv("GROWTHOS_ALLOW_PUBLISH") == "1"
     results: dict[str, Any] = {}
@@ -189,9 +174,7 @@ async def social_publish(draft_id: str, approval_code: str,
         if res.status not in {PublishStatus.DRY_RUN, PublishStatus.FAILED}:
             published_now = True
     if published_now:
-        # one-time code: burn it once something really left the machine
-        record["approval_used"] = True
-        record.pop("approval_hash", None)
+        state.burn(record)
     _save_drafts(drafts)
     return {"draft_id": draft_id, "live": live, "results": results}
 
@@ -243,10 +226,7 @@ def social_metrics_history(kind: str | None = None, platform: str | None = None,
 @mcp.tool()
 def social_history(limit: int = 20) -> list[dict[str, Any]]:
     """Return the most recent publish log entries."""
-    if not LOG.exists():
-        return []
-    lines = LOG.read_text(encoding="utf-8").splitlines()[-limit:]
-    return [json.loads(x) for x in lines]
+    return state.read_log(limit)
 
 
 def main() -> None:
